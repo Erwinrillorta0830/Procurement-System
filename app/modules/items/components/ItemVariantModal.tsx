@@ -179,6 +179,7 @@ export default function ItemVariantModal({ variant }: Props) {
                                         </option>
                                     ))}
                                 </select>
+
                             </div>
                         );
                     })}

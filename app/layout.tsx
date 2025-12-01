@@ -1,8 +1,6 @@
 // app/layout.tsx
 import './globals.css';
-import Sidebar from './components/Sidebar';
-import Header from './components/Header';
-import Footer from './components/Footer';
+import AppFrame from './components/AppFrame';
 
 export const metadata = {
     title: 'Procurement System',
@@ -11,17 +9,17 @@ export const metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
     return (
-        <html lang="en">
-        <body className="flex min-h-screen bg-gray-100">
-        {/* Sidebar */}
-        <Sidebar />
+        <html lang="en" className="h-full">
+        <body className="h-full bg-slate-50 text-slate-900 antialiased">
+        {/* Skip link */}
+        <a
+            href="#main"
+            className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-[9999] focus:px-3 focus:py-2 focus:rounded-lg focus:bg-black focus:text-white"
+        >
+            Skip to content
+        </a>
 
-        {/* Main content */}
-        <div className="flex flex-col flex-1 overflow-auto">
-            <Header />
-            <main className="p-6 flex-1">{children}</main>
-            <Footer />
-        </div>
+        <AppFrame>{children}</AppFrame>
         </body>
         </html>
     );

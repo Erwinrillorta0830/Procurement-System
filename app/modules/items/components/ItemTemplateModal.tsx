@@ -43,7 +43,7 @@ export default function ItemTemplateModal({ template }: Props) {
         const fetchUnits = async () => {
             setLoadingUnits(true);
             try {
-                const res = await axios.get("http://100.119.3.44:8055/items/units");
+                const res = await axios.get("http://100.126.246.124:8060/items/units");
                 setUnits(res.data.data || []);
             } catch (err) {
                 console.error("Failed to fetch units:", err);

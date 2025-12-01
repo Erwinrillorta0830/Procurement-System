@@ -1,10 +1,11 @@
-// app/components/Footer.tsx
 'use client';
 
 export default function Footer() {
     return (
-        <footer className="w-full bg-gray-900 text-white p-4 text-center mt-auto">
-            &copy; {new Date().getFullYear()} Procurement System. All rights reserved.
+        <footer className="border-t border-slate-200 bg-white text-slate-500">
+            <div className="mx-auto px-4 md:px-6 py-4 text-center text-sm">
+                © {new Date().getFullYear()} Procurement System • All rights reserved.
+            </div>
         </footer>
     );
 }
