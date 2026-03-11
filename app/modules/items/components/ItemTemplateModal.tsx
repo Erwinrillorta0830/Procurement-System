@@ -1,7 +1,7 @@
 "use client";
-import { useState, useEffect } from "react";
+
+import { useEffect, useState } from "react";
 import { useItems } from "../provider/ItemsProvider";
-import axios from "axios";
 
 interface Form {
     name: string;
@@ -15,133 +15,215 @@ interface Unit {
     unit_shortcut: string;
 }
 
+interface Template {
+    id: number;
+    name: string;
+    uom: string;
+    base_price: number;
+}
+
 interface Props {
-    template?: { id: number; name: string; uom: string; base_price: number };
+    template?: Template;
+}
+
+interface DirectusItemsResponse<T> {
+    data?: T[];
+}
+
+function isDirectusItemsResponse<T>(
+    value: unknown
+): value is DirectusItemsResponse<T> {
+    return typeof value === "object" && value !== null;
 }
 
 export default function ItemTemplateModal({ template }: Props) {
     const { activeModal, setActiveModal, addTemplate, updateTemplate } = useItems();
-    const [loadingUnits, setLoadingUnits] = useState(false);
-    const [units, setUnits] = useState<Unit[]>([]);
-    const [form, setForm] = useState<Form>({ name: "", uom: "", base_price: 0 });
 
-    // Prefill form if editing
+    const [loadingUnits, setLoadingUnits] = useState<boolean>(false);
+    const [units, setUnits] = useState<Unit[]>([]);
+    const [form, setForm] = useState<Form>({
+        name: "",
+        uom: "",
+        base_price: 0,
+    });
+
     useEffect(() => {
         if (template) {
             setForm({
                 name: template.name || "",
                 uom: template.uom || "",
-                base_price: template.base_price || 0,
+                base_price: Number(template.base_price) || 0,
             });
-        } else {
-            setForm({ name: "", uom: "", base_price: 0 });
+            return;
         }
+
+        setForm({
+            name: "",
+            uom: "",
+            base_price: 0,
+        });
     }, [template]);
 
-    // Fetch UOMs
     useEffect(() => {
-        const fetchUnits = async () => {
+        let mounted = true;
+
+        const fetchUnits = async (): Promise<void> => {
             setLoadingUnits(true);
+
             try {
-                const res = await axios.get("http://100.126.246.124:8060/items/units");
-                setUnits(res.data.data || []);
-            } catch (err) {
-                console.error("Failed to fetch units:", err);
+                const res = await fetch("/api/items/units", {
+                    method: "GET",
+                    cache: "no-store",
+                });
+
+                if (!res.ok) {
+                    throw new Error(`Failed to fetch units: ${res.status}`);
+                }
+
+                const json: unknown = await res.json();
+
+                if (!mounted) return;
+
+                if (isDirectusItemsResponse<Unit>(json) && Array.isArray(json.data)) {
+                    setUnits(json.data);
+                } else {
+                    setUnits([]);
+                }
+            } catch (error: unknown) {
+                console.error("Failed to fetch units:", error);
+                if (mounted) {
+                    setUnits([]);
+                }
             } finally {
-                setLoadingUnits(false);
+                if (mounted) {
+                    setLoadingUnits(false);
+                }
             }
         };
+
         fetchUnits();
+
+        return () => {
+            mounted = false;
+        };
     }, []);
 
-    const handleSubmit = async (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent<HTMLFormElement>): Promise<void> => {
         e.preventDefault();
-        const payload = { ...form, base_price: Number(form.base_price), is_active: true };
+
+        const payload = {
+            ...form,
+            base_price: Number(form.base_price),
+            is_active: true,
+        };
 
         try {
             if (template?.id) {
-                // EDIT mode
                 await updateTemplate(template.id, payload);
             } else {
-                // CREATE mode
                 await addTemplate(payload);
             }
+
             setActiveModal(null);
-            setForm({ name: "", uom: "", base_price: 0 });
-        } catch (err) {
-            console.error("Failed to save template:", err);
+            setForm({
+                name: "",
+                uom: "",
+                base_price: 0,
+            });
+        } catch (error: unknown) {
+            console.error("Failed to save template:", error);
         }
     };
 
     if (activeModal !== "template") return null;
 
     return (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-white p-6 rounded-lg w-[400px] max-h-[80vh] overflow-auto">
-                <h2 className="text-lg font-semibold mb-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+            <div className="max-h-[80vh] w-[400px] overflow-auto rounded-lg bg-white p-6">
+                <h2 className="mb-3 text-lg font-semibold">
                     {template ? "Edit Template" : "New Item Template"}
                 </h2>
+
                 <form onSubmit={handleSubmit} className="space-y-3">
                     <div>
-                    <label htmlFor="name" className="block text-sm font-medium mb-1">
-                        Item Name
-                    </label>
-                    <input
-                        name="name"
-                        placeholder="Name"
-                        value={form.name}
-                        onChange={(e) => setForm({ ...form, name: e.target.value })}
-                        className="border p-2 w-full rounded"
-                        required
-                    />
-                    </div>
-                    {/* UOM Dropdown */}
-                    <div>
-                        <label htmlFor="uom" className="block text-sm font-medium mb-1">
-                            Unit of Measure (UOM)
+                        <label htmlFor="name" className="mb-1 block text-sm font-medium">
+                            Item Name
                         </label>
-                    <select
-                        value={form.uom}
-                        onChange={(e) => setForm({ ...form, uom: e.target.value })}
-                        className="border p-2 w-full rounded"
-                        required
-                    >
-                        <option value="">Select UOM</option>
-                        {units.map((unit) => (
-                            <option key={unit.unit_id} value={unit.unit_name}>
-                                {unit.unit_name} ({unit.unit_shortcut})
-                            </option>
-                        ))}
-                    </select>
+                        <input
+                            id="name"
+                            name="name"
+                            placeholder="Name"
+                            value={form.name}
+                            onChange={(e) =>
+                                setForm((prev) => ({ ...prev, name: e.target.value }))
+                            }
+                            className="w-full rounded border p-2"
+                            required
+                        />
                     </div>
 
                     <div>
-                        <label htmlFor="base_price" className="block text-sm font-medium mb-1">
+                        <label htmlFor="uom" className="mb-1 block text-sm font-medium">
+                            Unit of Measure (UOM)
+                        </label>
+                        <select
+                            id="uom"
+                            value={form.uom}
+                            onChange={(e) =>
+                                setForm((prev) => ({ ...prev, uom: e.target.value }))
+                            }
+                            className="w-full rounded border p-2"
+                            required
+                            disabled={loadingUnits}
+                        >
+                            <option value="">
+                                {loadingUnits ? "Loading units..." : "Select UOM"}
+                            </option>
+                            {units.map((unit) => (
+                                <option key={unit.unit_id} value={unit.unit_name}>
+                                    {unit.unit_name} ({unit.unit_shortcut})
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label
+                            htmlFor="base_price"
+                            className="mb-1 block text-sm font-medium"
+                        >
                             Base Price
                         </label>
-                    <input
-                        name="base_price"
-                        type="number"
-                        placeholder="Base Price"
-                        value={form.base_price}
-                        onChange={(e) => setForm({ ...form, base_price: Number(e.target.value) })}
-                        className="border p-2 w-full rounded"
-                        step="0.01"
-                        min="0"
-                        required
-                    />
+                        <input
+                            id="base_price"
+                            name="base_price"
+                            type="number"
+                            placeholder="Base Price"
+                            value={form.base_price}
+                            onChange={(e) =>
+                                setForm((prev) => ({
+                                    ...prev,
+                                    base_price: Number(e.target.value),
+                                }))
+                            }
+                            className="w-full rounded border p-2"
+                            step="0.01"
+                            min="0"
+                            required
+                        />
                     </div>
+
                     <div className="flex justify-end gap-2">
                         <button
                             type="button"
                             onClick={() => setActiveModal(null)}
-                            className="border px-4 py-2 rounded hover:bg-gray-50"
+                            className="rounded border px-4 py-2 hover:bg-gray-50"
                         >
                             Cancel
                         </button>
                         <button
                             type="submit"
-                            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+                            className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
                         >
                             {template ? "Update" : "Save"}
                         </button>

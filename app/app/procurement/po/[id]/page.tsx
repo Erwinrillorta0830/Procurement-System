@@ -1,53 +1,87 @@
-// app/procurement/po/[id]/page.tsx
 import PODetailsPage from "../../../../modules/procurement/po/details";
 
-// Only allow params we pre-generated (required for `output: 'export'`)
 export const dynamicParams = false;
 
 type Params = { id: string };
 
-/** Fallback list when Directus is unreachable during build. */
-function fallbackParams(): Params[] {
-    // Optional: provide a CSV of ids at build time
-    const csv = (process.env.PURCHASE_ORDER_IDS_CSV || "").trim();
-    const list = csv
-        ? csv.split(",").map(s => s.trim()).filter(Boolean)
-        : [process.env.PO_DEFAULT_ID || "1"]; // at least one id so build won’t fail
+type PurchaseOrderIdRow = {
+    purchase_order_id: number | string;
+};
 
-    return list.map(id => ({ id }));
+type DirectusListResponse<T> = {
+    data?: T[];
+};
+
+function fallbackParams(): Params[] {
+    const csv = (process.env.PURCHASE_ORDER_IDS_CSV || "").trim();
+
+    const list = csv
+        ? csv
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean)
+        : [process.env.PO_DEFAULT_ID || "1"];
+
+    return list.map((id) => ({ id }));
 }
 
-/** Build-time enumeration of PO ids to statically export. */
 export async function generateStaticParams(): Promise<Params[]> {
-    const base = process.env.NEXT_PUBLIC_DIRECTUS_URL || process.env.DIRECTUS_URL;
-    const token = process.env.DIRECTUS_TOKEN || "";
+    const baseUrl =
+        process.env.DIRECTUS_URL ||
+        process.env.NEXT_PUBLIC_DIRECTUS_URL ||
+        "";
 
-    if (!base) return fallbackParams();
+    const token =
+        process.env.DIRECTUS_STATIC_TOKEN ||
+        process.env.DIRECTUS_TOKEN ||
+        "";
+
+    if (!baseUrl) {
+        return fallbackParams();
+    }
+
+    const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
 
     try {
-        const res = await fetch(
-            `${base}/items/purchase_order?fields=purchase_order_id&limit=-1`,
+        const response = await fetch(
+            `${normalizedBaseUrl}/items/purchase_order?fields=purchase_order_id&limit=-1`,
             {
-                headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-                // Build-time fetch; no caching needed for export
+                headers: token
+                    ? {
+                        Authorization: `Bearer ${token}`,
+                    }
+                    : undefined,
                 cache: "no-store",
             }
         );
 
-        if (!res.ok) return fallbackParams();
+        if (!response.ok) {
+            return fallbackParams();
+        }
 
-        const json = await res.json();
-        const rows = (json?.data ?? []) as Array<{ purchase_order_id: number }>;
+        const json = (await response.json()) as DirectusListResponse<PurchaseOrderIdRow>;
+        const rows = Array.isArray(json.data) ? json.data : [];
 
-        if (!rows.length) return fallbackParams();
+        if (rows.length === 0) {
+            return fallbackParams();
+        }
 
-        return rows.map(r => ({ id: String(r.purchase_order_id) }));
+        return rows
+            .filter(
+                (row): row is PurchaseOrderIdRow =>
+                    row !== null &&
+                    row !== undefined &&
+                    (typeof row.purchase_order_id === "number" ||
+                        typeof row.purchase_order_id === "string")
+            )
+            .map((row) => ({
+                id: String(row.purchase_order_id),
+            }));
     } catch {
         return fallbackParams();
     }
 }
 
-// You can keep this simple; the client child uses `useParams()`
 export default function Page() {
     return <PODetailsPage />;
 }

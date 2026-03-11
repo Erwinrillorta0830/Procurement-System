@@ -4,8 +4,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const DIRECTUS_BASE_URL =
+    process.env.DIRECTUS_URL ||
     process.env.NEXT_PUBLIC_DIRECTUS_URL ||
-    "http://100.110.197.61:8091";
+    "";
 
 const DIRECTUS_STATIC_TOKEN =
     process.env.DIRECTUS_STATIC_TOKEN ||
@@ -26,6 +27,11 @@ function buildUpstreamHeaders(req: NextRequest): Headers {
         headers.set("content-type", contentType);
     }
 
+    const accept = req.headers.get("accept");
+    if (accept) {
+        headers.set("accept", accept);
+    }
+
     if (DIRECTUS_STATIC_TOKEN) {
         headers.set("authorization", `Bearer ${DIRECTUS_STATIC_TOKEN}`);
     } else {
@@ -38,10 +44,13 @@ function buildUpstreamHeaders(req: NextRequest): Headers {
     return headers;
 }
 
-async function proxy(req: NextRequest, pathParts: string[]): Promise<NextResponse> {
+async function proxy(
+    req: NextRequest,
+    pathParts: string[]
+): Promise<NextResponse> {
     if (!DIRECTUS_BASE_URL) {
         return NextResponse.json(
-            { error: "DIRECTUS_URL or NEXT_PUBLIC_API_BASE_URL is not configured." },
+            { error: "DIRECTUS_URL or NEXT_PUBLIC_DIRECTUS_URL is not configured." },
             { status: 500 }
         );
     }
@@ -53,7 +62,6 @@ async function proxy(req: NextRequest, pathParts: string[]): Promise<NextRespons
 
         const method = req.method.toUpperCase();
         const hasBody = !["GET", "HEAD"].includes(method);
-
         const body = hasBody ? await req.text() : undefined;
 
         const upstream = await fetch(targetUrl, {
@@ -67,6 +75,7 @@ async function proxy(req: NextRequest, pathParts: string[]): Promise<NextRespons
 
         const responseHeaders = new Headers();
         const upstreamContentType = upstream.headers.get("content-type");
+
         if (upstreamContentType) {
             responseHeaders.set("content-type", upstreamContentType);
         }
@@ -95,27 +104,46 @@ type RouteContext = {
     }>;
 };
 
-export async function GET(req: NextRequest, context: RouteContext): Promise<NextResponse> {
+export async function GET(
+    req: NextRequest,
+    context: RouteContext
+): Promise<NextResponse> {
     const { path } = await context.params;
     return proxy(req, path);
 }
 
-export async function POST(req: NextRequest, context: RouteContext): Promise<NextResponse> {
+export async function POST(
+    req: NextRequest,
+    context: RouteContext
+): Promise<NextResponse> {
     const { path } = await context.params;
     return proxy(req, path);
 }
 
-export async function PATCH(req: NextRequest, context: RouteContext): Promise<NextResponse> {
+export async function PATCH(
+    req: NextRequest,
+    context: RouteContext
+): Promise<NextResponse> {
     const { path } = await context.params;
     return proxy(req, path);
 }
 
-export async function PUT(req: NextRequest, context: RouteContext): Promise<NextResponse> {
+export async function PUT(
+    req: NextRequest,
+    context: RouteContext
+): Promise<NextResponse> {
     const { path } = await context.params;
     return proxy(req, path);
 }
 
-export async function DELETE(req: NextRequest, context: RouteContext): Promise<NextResponse> {
+export async function DELETE(
+    req: NextRequest,
+    context: RouteContext
+): Promise<NextResponse> {
     const { path } = await context.params;
     return proxy(req, path);
+}
+
+export async function OPTIONS(): Promise<NextResponse> {
+    return new NextResponse(null, { status: 204 });
 }
