@@ -1,5 +1,6 @@
 "use client";
-import { useState, useEffect } from "react";
+
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useItems } from "../provider/ItemsProvider";
 
 interface Form {
@@ -26,19 +27,95 @@ interface AttributeValue {
     extra_price: number;
 }
 
+interface VariantInput {
+    id: number;
+    item_tmpl_id: number;
+    name: string;
+    list_price: number;
+    valueIds: number[];
+}
+
 interface Props {
-    variant?: {
-        id: number;
-        item_tmpl_id: number;
-        name: string;
-        list_price: number;
-        valueIds: number[];
+    variant?: VariantInput;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null;
+}
+
+function toNumber(value: unknown, fallback = 0): number {
+    const n = typeof value === "number" ? value : Number(value);
+    return Number.isFinite(n) ? n : fallback;
+}
+
+function normalizeTemplate(value: unknown): Template | null {
+    if (!isRecord(value)) return null;
+
+    const id = toNumber(value.id, NaN);
+    const name = typeof value.name === "string" ? value.name : "";
+
+    if (!Number.isFinite(id) || !name) return null;
+
+    return { id, name };
+}
+
+function normalizeAttribute(value: unknown): Attribute | null {
+    if (!isRecord(value)) return null;
+
+    const id = toNumber(value.id, NaN);
+    const name = typeof value.name === "string" ? value.name : "";
+
+    if (!Number.isFinite(id) || !name) return null;
+
+    return { id, name };
+}
+
+function normalizeAttributeValue(value: unknown): AttributeValue | null {
+    if (!isRecord(value)) return null;
+
+    const id = toNumber(value.id, NaN);
+    const attributeId = toNumber(value.attribute_id, NaN);
+    const name = typeof value.name === "string" ? value.name : "";
+    const extraPrice = toNumber(value.extra_price, 0);
+
+    if (!Number.isFinite(id) || !Number.isFinite(attributeId) || !name) return null;
+
+    return {
+        id,
+        attribute_id: attributeId,
+        name,
+        extra_price: extraPrice,
     };
 }
 
 export default function ItemVariantModal({ variant }: Props) {
-    const { activeModal, setActiveModal, templates, attributes, attributeValues, addVariant, updateVariant } = useItems();
-        useItems();
+    const {
+        activeModal,
+        setActiveModal,
+        templates,
+        attributes,
+        attributeValues,
+        addVariant,
+        updateVariant,
+    } = useItems();
+
+    const templateList = useMemo<Template[]>(
+        () => templates.map(normalizeTemplate).filter((v): v is Template => v !== null),
+        [templates]
+    );
+
+    const attributeList = useMemo<Attribute[]>(
+        () => attributes.map(normalizeAttribute).filter((v): v is Attribute => v !== null),
+        [attributes]
+    );
+
+    const attributeValueList = useMemo<AttributeValue[]>(
+        () =>
+            attributeValues
+                .map(normalizeAttributeValue)
+                .filter((v): v is AttributeValue => v !== null),
+        [attributeValues]
+    );
 
     const [form, setForm] = useState<Form>({
         item_tmpl_id: "",
@@ -47,47 +124,62 @@ export default function ItemVariantModal({ variant }: Props) {
         valueIds: [],
     });
 
-    // Prefill form when editing
     useEffect(() => {
         if (variant) {
             setForm({
-                item_tmpl_id: variant.item_tmpl_id.toString(),
+                item_tmpl_id: String(variant.item_tmpl_id),
                 name: variant.name,
-                list_price: variant.list_price.toString(),
-                valueIds: variant.valueIds || [],
+                list_price: String(variant.list_price),
+                valueIds: variant.valueIds ?? [],
             });
-        } else {
-            setForm({ item_tmpl_id: "", name: "", list_price: "", valueIds: [] });
+            return;
         }
+
+        setForm({
+            item_tmpl_id: "",
+            name: "",
+            list_price: "",
+            valueIds: [],
+        });
     }, [variant]);
 
-    // Update variant name dynamically based on template + selected attributes
     useEffect(() => {
-        const template = (templates as Template[]).find((t) => t.id === Number(form.item_tmpl_id));
-        if (!template) return setForm((prev) => ({ ...prev, name: "" }));
+        const template = templateList.find((item) => item.id === Number(form.item_tmpl_id));
+
+        if (!template) {
+            setForm((prev) => ({ ...prev, name: "" }));
+            return;
+        }
 
         const selectedValues = form.valueIds
-            .map((id) => (attributeValues as AttributeValue[]).find((v) => v.id === id))
-            .filter((v): v is AttributeValue => Boolean(v))
-            .map((v) => v.name);
+            .map((id) => attributeValueList.find((value) => value.id === id))
+            .filter((value): value is AttributeValue => value !== undefined)
+            .map((value) => value.name);
 
-        const variantName = [template.name, ...selectedValues].join(" ");
+        const variantName = [template.name, ...selectedValues].join(" ").trim();
+
         setForm((prev) => ({ ...prev, name: variantName }));
-    }, [form.item_tmpl_id, form.valueIds, templates, attributeValues]);
+    }, [form.item_tmpl_id, form.valueIds, templateList, attributeValueList]);
 
-    const handleSelectValue = (attributeId: number, valueId: number) => {
+    const handleSelectValue = (attributeId: number, valueId: number): void => {
         const filtered = form.valueIds.filter((id) => {
-            const val = (attributeValues as AttributeValue[]).find((v) => v.id === id);
-            return val?.attribute_id !== attributeId;
+            const value = attributeValueList.find((item) => item.id === id);
+            return value?.attribute_id !== attributeId;
         });
 
-        setForm({ ...form, valueIds: valueId ? [...filtered, valueId] : filtered });
+        setForm((prev) => ({
+            ...prev,
+            valueIds: valueId ? [...filtered, valueId] : filtered,
+        }));
     };
 
-    const handleSubmit = async (e: React.FormEvent) => {
+    const handleSubmit = async (e: FormEvent<HTMLFormElement>): Promise<void> => {
         e.preventDefault();
 
-        if (!form.item_tmpl_id) return alert("Please select a template");
+        if (!form.item_tmpl_id) {
+            alert("Please select a template");
+            return;
+        }
 
         const payload = {
             item_tmpl_id: Number(form.item_tmpl_id),
@@ -103,99 +195,118 @@ export default function ItemVariantModal({ variant }: Props) {
                 await addVariant(payload, form.valueIds);
             }
 
-
             setActiveModal(null);
-            setForm({ item_tmpl_id: "", name: "", list_price: "", valueIds: [] });
-        } catch (err) {
-            console.error("Failed to save variant:", err);
+            setForm({
+                item_tmpl_id: "",
+                name: "",
+                list_price: "",
+                valueIds: [],
+            });
+        } catch (error: unknown) {
+            console.error("Failed to save variant:", error);
         }
     };
 
     if (activeModal !== "variant") return null;
 
     return (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-            <div className="bg-white p-6 rounded-lg shadow-lg w-[500px] max-h-[80vh] overflow-auto">
-                <h2 className="text-lg font-semibold mb-4">{variant ? "Edit Variant" : "Add Variant"}</h2>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+            <div className="max-h-[80vh] w-[500px] overflow-auto rounded-lg bg-white p-6 shadow-lg">
+                <h2 className="mb-4 text-lg font-semibold">
+                    {variant ? "Edit Variant" : "Add Variant"}
+                </h2>
+
                 <form onSubmit={handleSubmit} className="space-y-4">
-                    {/* Template Select */}
                     <select
                         name="item_tmpl_id"
                         value={form.item_tmpl_id}
-                        onChange={(e) => setForm({ ...form, item_tmpl_id: e.target.value })}
-                        className="border p-2 w-full rounded"
+                        onChange={(e) =>
+                            setForm((prev) => ({ ...prev, item_tmpl_id: e.target.value }))
+                        }
+                        className="w-full rounded border p-2"
                         required
                     >
                         <option value="">Select Template</option>
-                        {(templates as Template[]).map((t) => (
-                            <option key={t.id} value={t.id}>
-                                {t.name}
+                        {templateList.map((template) => (
+                            <option key={template.id} value={template.id}>
+                                {template.name}
                             </option>
                         ))}
                     </select>
 
-                    {/* Variant Name (readonly) */}
                     <input
                         name="name"
                         placeholder="Variant Name"
                         value={form.name}
                         readOnly
-                        className="border p-2 w-full rounded bg-gray-100 cursor-not-allowed"
+                        className="w-full cursor-not-allowed rounded border bg-gray-100 p-2"
                     />
 
-                    {/* List Price */}
                     <input
                         name="list_price"
                         type="number"
                         placeholder="List Price"
                         value={form.list_price}
-                        onChange={(e) => setForm({ ...form, list_price: e.target.value })}
-                        className="border p-2 w-full rounded"
+                        onChange={(e) =>
+                            setForm((prev) => ({ ...prev, list_price: e.target.value }))
+                        }
+                        className="w-full rounded border p-2"
                         step="0.01"
                         min="0"
                     />
 
-                    {/* Attribute dropdowns */}
-                    {(attributes as Attribute[]).map((attr) => {
-                        const options = (attributeValues as AttributeValue[]).filter(
-                            (v) => v.attribute_id === attr.id
+                    {attributeList.map((attribute) => {
+                        const options = attributeValueList.filter(
+                            (value) => value.attribute_id === attribute.id
                         );
+
+                        const selectedValueId =
+                            form.valueIds
+                                .map((id) =>
+                                    attributeValueList.find((value) => value.id === id)
+                                )
+                                .find((value) => value?.attribute_id === attribute.id)?.id ?? "";
+
                         return (
-                            <div key={attr.id}>
-                                <label className="block font-medium mb-1">{attr.name} (optional)</label>
+                            <div key={attribute.id}>
+                                <label className="mb-1 block font-medium">
+                                    {attribute.name} (optional)
+                                </label>
                                 <select
-                                    className="border p-2 w-full rounded"
-                                    value={
-                                        form.valueIds
-                                            .map((id) => (attributeValues as AttributeValue[]).find((v) => v.id === id))
-                                            .find((v) => v?.attribute_id === attr.id)?.id || ""
+                                    className="w-full rounded border p-2"
+                                    value={selectedValueId}
+                                    onChange={(e) =>
+                                        handleSelectValue(
+                                            attribute.id,
+                                            Number(e.target.value)
+                                        )
                                     }
-                                    onChange={(e) => handleSelectValue(attr.id, Number(e.target.value))}
                                 >
                                     <option value="">-- None --</option>
-                                    {options.map((val) => (
-                                        <option key={val.id} value={val.id}>
-                                            {val.name} {val.extra_price > 0 && `( +${val.extra_price} )`}
+                                    {options.map((value) => (
+                                        <option key={value.id} value={value.id}>
+                                            {value.name}{" "}
+                                            {value.extra_price > 0
+                                                ? `( +${value.extra_price} )`
+                                                : ""}
                                         </option>
                                     ))}
                                 </select>
-
                             </div>
                         );
                     })}
 
-                    {/* Actions */}
-                    <div className="flex justify-end gap-3 mt-4">
+                    <div className="mt-4 flex justify-end gap-3">
                         <button
                             type="button"
                             onClick={() => setActiveModal(null)}
-                            className="border px-4 py-2 rounded hover:bg-gray-50"
+                            className="rounded border px-4 py-2 hover:bg-gray-50"
                         >
                             Cancel
                         </button>
                         <button
                             type="submit"
-                            className="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700"
+                            className="rounded bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-700"
                         >
                             {variant ? "Update" : "Save"}
                         </button>
